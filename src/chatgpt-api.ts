@@ -342,6 +342,10 @@ export class ChatGPTAPI {
     }
   }
 
+  async setTemperature(temp: number) {
+    this._completionParams.temperature = temp
+  }
+
   get apiKey(): string {
     return this._apiKey
   }
