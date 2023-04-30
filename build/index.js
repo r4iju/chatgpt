@@ -2,15 +2,6 @@
 import pTimeout from "p-timeout";
 import { v4 as uuidv4 } from "uuid";
 
-// src/custom-error.ts
-var FetchError = class extends Error {
-  constructor(response) {
-    super(`Fetch failed: ${response.status} ${response.statusText}`);
-    this.name = "FetchError";
-    this.response = response;
-  }
-};
-
 // src/tokenizer.ts
 import { get_encoding } from "@dqbd/tiktoken";
 var tokenizer = get_encoding("cl100k_base");
@@ -24,6 +15,15 @@ var ChatGPTError = class extends Error {
 var openai;
 ((openai2) => {
 })(openai || (openai = {}));
+
+// src/custom-error.ts
+var FetchError = class extends Error {
+  constructor(response) {
+    super(`Fetch failed: ${response.status} ${response.statusText}`);
+    this.name = "FetchError";
+    this.response = response;
+  }
+};
 
 // src/fetch.ts
 var fetch = globalThis.fetch;
@@ -305,7 +305,9 @@ Current date: ${currentDate}`;
             if (!res.ok) {
               const reason = await res.text();
               const msg = `OpenAI error ${res.status || res.statusText}: ${reason}`;
-              const error = new ChatGPTError(msg, { cause: new FetchError(res) });
+              const error = new ChatGPTError(msg, {
+                cause: new FetchError(res)
+              });
               error.statusCode = res.status;
               error.statusText = res.statusText;
               return reject(error);
@@ -461,14 +463,14 @@ ${message.content}`]);
   }
   async _defaultGetMessageById(id) {
     const res = await this._storage.get("gptMessages", id);
-    return {
-      ...res,
-      detail: res.detail ? JSON.parse(res.detail) : null
-    };
+    return res;
   }
   async _defaultUpsertMessage(message) {
     await this._storage.set("gptMessages", message.id, {
       ...message,
+      conversationId: message.conversationId ?? null,
+      parentMessageId: message.parentMessageId ?? null,
+      delta: message.delta ?? null,
       detail: message.detail ? JSON.stringify(message.detail) : null
     });
   }

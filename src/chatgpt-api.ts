@@ -458,10 +458,7 @@ export class ChatGPTAPI {
     id: string
   ): Promise<types.ChatMessage> {
     const res = await this._storage.get('gptMessages', id)
-    return {
-      ...res,
-      detail: res.detail ? JSON.parse(res.detail) : null
-    }
+    return res
   }
 
   protected async _defaultUpsertMessage(
@@ -469,6 +466,9 @@ export class ChatGPTAPI {
   ): Promise<void> {
     await this._storage.set('gptMessages', message.id, {
       ...message,
+      conversationId: message.conversationId ?? null,
+      parentMessageId: message.parentMessageId ?? null,
+      delta: message.delta ?? null,
       detail: message.detail ? JSON.stringify(message.detail) : null
     })
   }
