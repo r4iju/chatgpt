@@ -5,8 +5,10 @@ import { v4 as uuidv4 } from 'uuid'
 
 import * as tokenizer from './tokenizer'
 import * as types from './types'
+import { FetchError } from './custom-error'
 import { fetch as globalFetch } from './fetch'
 import { fetchSSE } from './fetch-sse'
+import { Storage } from './storage'
 
 const CHATGPT_MODEL = 'gpt-3.5-turbo'
 
@@ -18,6 +20,7 @@ export class ChatGPTAPI {
   protected _apiBaseUrl: string
   protected _apiOrg?: string
   protected _debug: boolean
+  protected _storage: Storage
 
   protected _systemMessage: string
   protected _completionParams: Omit<
@@ -31,8 +34,6 @@ export class ChatGPTAPI {
   protected _getMessageById: types.GetMessageByIdFunction
   protected _upsertMessage: types.UpsertMessageFunction
 
-  protected _messageStore: Keyv<types.ChatMessage>
-
   /**
    * Creates a new client wrapper around OpenAI's chat completion API, mimicing the official ChatGPT webapp's functionality as closely as possible.
    *
@@ -43,7 +44,7 @@ export class ChatGPTAPI {
    * @param completionParams - Param overrides to send to the [OpenAI chat completion API](https://platform.openai.com/docs/api-reference/chat/create). Options like `temperature` and `presence_penalty` can be tweaked to change the personality of the assistant.
    * @param maxModelTokens - Optional override for the maximum number of tokens allowed by the model's context. Defaults to 4096.
    * @param maxResponseTokens - Optional override for the minimum number of tokens allowed for the model's response. Defaults to 1000.
-   * @param messageStore - Optional [Keyv](https://github.com/jaredwray/keyv) store to persist chat messages to. If not provided, messages will be lost when the process exits.
+   * @param storage - External storage system
    * @param getMessageById - Optional function to retrieve a message by its ID. If not provided, the default implementation will be used (using an in-memory `messageStore`).
    * @param upsertMessage - Optional function to insert or update a message. If not provided, the default implementation will be used (using an in-memory `messageStore`).
    * @param fetch - Optional override for the `fetch` implementation to use. Defaults to the global `fetch` function.
@@ -54,7 +55,7 @@ export class ChatGPTAPI {
       apiOrg,
       apiBaseUrl = 'https://api.openai.com/v1',
       debug = false,
-      messageStore,
+      storage,
       completionParams,
       systemMessage,
       maxModelTokens = 4000,
@@ -91,13 +92,7 @@ export class ChatGPTAPI {
     this._getMessageById = getMessageById ?? this._defaultGetMessageById
     this._upsertMessage = upsertMessage ?? this._defaultUpsertMessage
 
-    if (messageStore) {
-      this._messageStore = messageStore
-    } else {
-      this._messageStore = new Keyv<types.ChatMessage, any>({
-        store: new QuickLRU<string, types.ChatMessage>({ maxSize: 10000 })
-      })
-    }
+    this._storage = storage
 
     if (!this._apiKey) {
       throw new Error('OpenAI missing required apiKey')
@@ -260,7 +255,9 @@ export class ChatGPTAPI {
               const msg = `OpenAI error ${
                 res.status || res.statusText
               }: ${reason}`
-              const error = new types.ChatGPTError(msg, { cause: res })
+              const error = new types.ChatGPTError(msg, {
+                cause: new FetchError(res)
+              })
               error.statusCode = res.status
               error.statusText = res.statusText
               return reject(error)
@@ -384,8 +381,7 @@ export class ChatGPTAPI {
       ? messages.concat([
           {
             role: 'user',
-            content: text,
-            name: opts.name
+            content: text
           }
         ])
       : messages
@@ -433,8 +429,7 @@ export class ChatGPTAPI {
       nextMessages = nextMessages.slice(0, systemMessageOffset).concat([
         {
           role: parentMessageRole,
-          content: parentMessage.text,
-          name: parentMessage.name
+          content: parentMessage.text
         },
         ...nextMessages.slice(systemMessageOffset)
       ])
@@ -462,13 +457,19 @@ export class ChatGPTAPI {
   protected async _defaultGetMessageById(
     id: string
   ): Promise<types.ChatMessage> {
-    const res = await this._messageStore.get(id)
-    return res
+    const res = await this._storage.get('gptMessages', id)
+    return {
+      ...res,
+      detail: res.detail ? JSON.parse(res.detail) : null
+    }
   }
 
   protected async _defaultUpsertMessage(
     message: types.ChatMessage
   ): Promise<void> {
-    await this._messageStore.set(message.id, message)
+    await this._storage.set('gptMessages', message.id, {
+      ...message,
+      detail: message.detail ? JSON.stringify(message.detail) : null
+    })
   }
 }

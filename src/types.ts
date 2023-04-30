@@ -1,5 +1,7 @@
 import Keyv from 'keyv'
 
+import { Storage } from './storage'
+
 export type Role = 'user' | 'assistant' | 'system'
 
 export type FetchFn = typeof fetch
@@ -27,7 +29,7 @@ export type ChatGPTAPIOptions = {
   /** @defaultValue `1000` **/
   maxResponseTokens?: number
 
-  messageStore?: Keyv
+  storage: Storage
   getMessageById?: GetMessageByIdFunction
   upsertMessage?: UpsertMessageFunction
 

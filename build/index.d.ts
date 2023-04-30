@@ -1,4 +1,10 @@
-import Keyv from 'keyv';
+interface Storage {
+    get(collection: string, id: string): Promise<any>;
+    set(collection: string, id: string, data: any): Promise<void>;
+    update(collection: string, id: string, data: any): Promise<void>;
+    delete(collection: string, id: string): Promise<void>;
+    list(collection: string): Promise<string[]>;
+}
 
 type Role = 'user' | 'assistant' | 'system';
 type FetchFn = typeof fetch;
@@ -15,7 +21,7 @@ type ChatGPTAPIOptions = {
     maxModelTokens?: number;
     /** @defaultValue `1000` **/
     maxResponseTokens?: number;
-    messageStore?: Keyv;
+    storage: Storage;
     getMessageById?: GetMessageByIdFunction;
     upsertMessage?: UpsertMessageFunction;
     fetch?: FetchFn;
@@ -399,6 +405,7 @@ declare class ChatGPTAPI {
     protected _apiBaseUrl: string;
     protected _apiOrg?: string;
     protected _debug: boolean;
+    protected _storage: Storage;
     protected _systemMessage: string;
     protected _completionParams: Omit<openai.CreateChatCompletionRequest, 'messages' | 'n'>;
     protected _maxModelTokens: number;
@@ -406,7 +413,6 @@ declare class ChatGPTAPI {
     protected _fetch: FetchFn;
     protected _getMessageById: GetMessageByIdFunction;
     protected _upsertMessage: UpsertMessageFunction;
-    protected _messageStore: Keyv<ChatMessage>;
     /**
      * Creates a new client wrapper around OpenAI's chat completion API, mimicing the official ChatGPT webapp's functionality as closely as possible.
      *
@@ -417,7 +423,7 @@ declare class ChatGPTAPI {
      * @param completionParams - Param overrides to send to the [OpenAI chat completion API](https://platform.openai.com/docs/api-reference/chat/create). Options like `temperature` and `presence_penalty` can be tweaked to change the personality of the assistant.
      * @param maxModelTokens - Optional override for the maximum number of tokens allowed by the model's context. Defaults to 4096.
      * @param maxResponseTokens - Optional override for the minimum number of tokens allowed for the model's response. Defaults to 1000.
-     * @param messageStore - Optional [Keyv](https://github.com/jaredwray/keyv) store to persist chat messages to. If not provided, messages will be lost when the process exits.
+     * @param storage - External storage system
      * @param getMessageById - Optional function to retrieve a message by its ID. If not provided, the default implementation will be used (using an in-memory `messageStore`).
      * @param upsertMessage - Optional function to insert or update a message. If not provided, the default implementation will be used (using an in-memory `messageStore`).
      * @param fetch - Optional override for the `fetch` implementation to use. Defaults to the global `fetch` function.

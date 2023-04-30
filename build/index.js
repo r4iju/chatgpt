@@ -1,8 +1,15 @@
 // src/chatgpt-api.ts
-import Keyv from "keyv";
 import pTimeout from "p-timeout";
-import QuickLRU from "quick-lru";
 import { v4 as uuidv4 } from "uuid";
+
+// src/custom-error.ts
+var FetchError = class extends Error {
+  constructor(response) {
+    super(`Fetch failed: ${response.status} ${response.statusText}`);
+    this.name = "FetchError";
+    this.response = response;
+  }
+};
 
 // src/tokenizer.ts
 import { get_encoding } from "@dqbd/tiktoken";
@@ -52,7 +59,7 @@ async function fetchSSE(url, options, fetch2 = fetch) {
       reason = res.statusText;
     }
     const msg = `ChatGPT error ${res.status}: ${reason}`;
-    const error = new ChatGPTError(msg, { cause: res });
+    const error = new ChatGPTError(msg, { cause: new FetchError(res) });
     error.statusCode = res.status;
     error.statusText = res.statusText;
     throw error;
@@ -117,7 +124,7 @@ var ChatGPTAPI = class {
    * @param completionParams - Param overrides to send to the [OpenAI chat completion API](https://platform.openai.com/docs/api-reference/chat/create). Options like `temperature` and `presence_penalty` can be tweaked to change the personality of the assistant.
    * @param maxModelTokens - Optional override for the maximum number of tokens allowed by the model's context. Defaults to 4096.
    * @param maxResponseTokens - Optional override for the minimum number of tokens allowed for the model's response. Defaults to 1000.
-   * @param messageStore - Optional [Keyv](https://github.com/jaredwray/keyv) store to persist chat messages to. If not provided, messages will be lost when the process exits.
+   * @param storage - External storage system
    * @param getMessageById - Optional function to retrieve a message by its ID. If not provided, the default implementation will be used (using an in-memory `messageStore`).
    * @param upsertMessage - Optional function to insert or update a message. If not provided, the default implementation will be used (using an in-memory `messageStore`).
    * @param fetch - Optional override for the `fetch` implementation to use. Defaults to the global `fetch` function.
@@ -128,7 +135,7 @@ var ChatGPTAPI = class {
       apiOrg,
       apiBaseUrl = "https://api.openai.com/v1",
       debug = false,
-      messageStore,
+      storage,
       completionParams,
       systemMessage,
       maxModelTokens = 4e3,
@@ -160,13 +167,7 @@ Current date: ${currentDate}`;
     this._maxResponseTokens = maxResponseTokens;
     this._getMessageById = getMessageById ?? this._defaultGetMessageById;
     this._upsertMessage = upsertMessage ?? this._defaultUpsertMessage;
-    if (messageStore) {
-      this._messageStore = messageStore;
-    } else {
-      this._messageStore = new Keyv({
-        store: new QuickLRU({ maxSize: 1e4 })
-      });
-    }
+    this._storage = storage;
     if (!this._apiKey) {
       throw new Error("OpenAI missing required apiKey");
     }
@@ -304,7 +305,7 @@ Current date: ${currentDate}`;
             if (!res.ok) {
               const reason = await res.text();
               const msg = `OpenAI error ${res.status || res.statusText}: ${reason}`;
-              const error = new ChatGPTError(msg, { cause: res });
+              const error = new ChatGPTError(msg, { cause: new FetchError(res) });
               error.statusCode = res.status;
               error.statusText = res.statusText;
               return reject(error);
@@ -403,8 +404,7 @@ Current date: ${currentDate}`;
     let nextMessages = text ? messages.concat([
       {
         role: "user",
-        content: text,
-        name: opts.name
+        content: text
       }
     ]) : messages;
     let numTokens = 0;
@@ -443,8 +443,7 @@ ${message.content}`]);
       nextMessages = nextMessages.slice(0, systemMessageOffset).concat([
         {
           role: parentMessageRole,
-          content: parentMessage.text,
-          name: parentMessage.name
+          content: parentMessage.text
         },
         ...nextMessages.slice(systemMessageOffset)
       ]);
@@ -461,11 +460,17 @@ ${message.content}`]);
     return encode(text).length;
   }
   async _defaultGetMessageById(id) {
-    const res = await this._messageStore.get(id);
-    return res;
+    const res = await this._storage.get("gptMessages", id);
+    return {
+      ...res,
+      detail: res.detail ? JSON.parse(res.detail) : null
+    };
   }
   async _defaultUpsertMessage(message) {
-    await this._messageStore.set(message.id, message);
+    await this._storage.set("gptMessages", message.id, {
+      ...message,
+      detail: message.detail ? JSON.stringify(message.detail) : null
+    });
   }
 };
 
